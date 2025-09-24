@@ -1,0 +1,17 @@
+{
+    "name": "local-quoting",
+    "version": "1.0.0",
+    "type": "module",
+    "dependencies": {
+      "@gala-chain/api": "2.4.3",
+      "@gala-chain/dex": "1.0.18",
+      "@gala-chain/gswap-sdk": "0.0.7",
+      "axios": "^1.6.0",
+      "bignumber.js": "^9.1.2",
+      "js-sha3": "^0.9.2"
+    },
+    "devDependencies": {
+      "typescript": "^5.6.3"
+    }
+  }
+  
