@@ -6,7 +6,7 @@ import BigNumber from "bignumber.js";
 
 const QEA_URL = "https://gateway-mainnet.galachain.com/api/asset/dexv3-contract/QuoteExactAmount"
 // const GCP_URL = "https://gateway-mainnet.galachain.com/api/asset/dexv3-contract/GetCompositePool"
-const GCP_URL = "https://int-galachain-gateway-chain-platform-stage-chain-platform-eks.stage.galachain.com/api/asset/dexv3-contract/GetCompositePool"
+const GCP_URL = "https://int-galachain-gateway-chain-platform-prod-chain-platform-eks.prod.galachain.com/api/asset/dexv3-contract/GetCompositePool"
 
 const API_BASE_URL = "https://dex-backend-prod1.defi.gala.com";
 
@@ -18,18 +18,15 @@ async function performOfflineQuote(token0, token1, amount, fee, ) {
     fee
   );
 
+  // actually call the chain here with an axios POST request
+  const compositePoolResponse = await axios.post(GCP_URL, getCompositePoolDto, {
+    headers: {
+      "Content-Type": "application/json",
+    }
+  });
+
   // temporarily construce the composite pool data via Query API calls
   const queryAPICompositePool = await getPoolData(token0.collection + "$" + token0.category + "$" + token0.type + "$" + token0.additionalKey, token1.collection + "$" + token1.category + "$" + token1.type + "$" + token1.additionalKey, fee);
-
-
-  // NOTE: This method is not yet in production, we are using GraphQL data for now
-  // actually call the chain here with an axios POST request
-  // const compositePoolResponse = await axios.post(GCP_URL, getCompositePoolDto, {
-  //   headers: {
-  //     "Content-Type": "application/json",
-  //   }
-  // });
-
   
   // Use GraphQL data (current and up-to-date)
   const foundPool = new Pool(
@@ -54,8 +51,9 @@ async function performOfflineQuote(token0, token1, amount, fee, ) {
   // Use GraphQL data for tick data map
   const poolTicks = {};
   queryAPICompositePool.poolTicks.forEach(tick => {
-    // Create proper TickData objects from GraphQL data
-    poolTicks[tick.node.key2] = new TickData(tick.node.key2, tick.node.value);
+    // Parse the JSON string in tick.node.value before creating TickData object
+    const parsedTickValue = JSON.parse(tick.node.value);
+    poolTicks[tick.node.key2] = parsedTickValue;
   });
 
   const poolToken0Balance = new TokenBalance({
@@ -93,8 +91,11 @@ async function performOfflineQuote(token0, token1, amount, fee, ) {
     fee,
     amount, // 100 GALA
     true, // GALA -> GUSDC
-    compositePoolData // Use the fetched data for offline calculation
+    compositePoolResponse.data.Data // Use the fetched data for offline calculation
   );
+
+  console.log("Composite Pool Data: ", JSON.stringify(compositePoolResponse.data.Data, null, 2));
+  console.log("QL Composite Pool Data: ", JSON.stringify(compositePoolData, null, 2));
 
   // 4. Perform quote calculation locally
   const quoteResult = await quoteExactAmount(null, quoteDto);
