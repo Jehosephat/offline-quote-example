@@ -1,6 +1,30 @@
 # GalaChain Local Quote Tool
 
-A Node.js application for comparing on-chain and offline DEX quotes on the GalaChain network. This tool fetches pool data from the GalaChain GraphQL API and performs local quote calculations using the GalaChain DEX SDK.
+A Node.js application for comparing on-chain and offline DEX quotes on the GalaChain network. This tool validates local quote accuracy by fetching pool data from the GalaChain API and performing local quote calculations using the GalaChain DEX SDK, then comparing results with on-chain quotes to ensure consistency.
+
+The script demonstrates how to construct composite pool data from API responses, convert string values to proper BigNumber objects, and perform offline quote calculations that match on-chain results. This enables developers to build applications that can calculate DEX quotes locally without requiring blockchain calls for every quote request.
+
+## Quick Start - Using Local Quotes in Your App
+
+```javascript
+import { TokenClassKey, TokenBalance } from "@gala-chain/api";
+import { quoteExactAmount, GetCompositePoolDto, QuoteExactAmountDto, CompositePoolDto, Pool, TickData } from "@gala-chain/dex";
+import axios from "axios";
+import BigNumber from "bignumber.js";
+
+// 1. Fetch pool data from GalaChain
+const getCompositePoolDto = new GetCompositePoolDto(token0, token1, fee);
+const response = await axios.post("https://gateway-mainnet.galachain.com/api/asset/dexv3-contract/GetCompositePool", getCompositePoolDto);
+
+// 2. Convert response data to proper objects with BigNumber conversions
+const compositePoolData = createCompositePoolDtoFromResponse(response.data.Data);
+
+// 3. Perform local quote calculation
+const quoteDto = new QuoteExactAmountDto(token0, token1, fee, amount, zeroForOne, compositePoolData);
+const quoteResult = await quoteExactAmount(null, quoteDto);
+
+// Result: { amount0: "1000", amount1: "-14.366203", currentSqrtPrice: "...", newSqrtPrice: "..." }
+```
 
 ## Features
 
