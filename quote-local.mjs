@@ -1,15 +1,12 @@
 import { TokenClassKey, TokenBalance } from "@gala-chain/api";
-import { quoteExactAmount, GetCompositePoolDto, QuoteExactAmountDto, DexFeePercentageTypes, CompositePoolDto, Pool, TickData, sqrtPriceToTick } from "@gala-chain/dex";
+import { quoteExactAmount, GetCompositePoolDto, QuoteExactAmountDto, DexFeePercentageTypes, CompositePoolDto, Pool, TickData } from "@gala-chain/dex";
 import { getPoolData } from "./query-api-queries.mjs";
 import axios from "axios";
 import BigNumber from "bignumber.js";
 
 const QEA_URL = "https://gateway-mainnet.galachain.com/api/asset/dexv3-contract/QuoteExactAmount"
-// const GCP_URL = "https://gateway-mainnet.galachain.com/api/asset/dexv3-contract/GetCompositePool"
-const GCP_URL = "https://int-galachain-gateway-chain-platform-prod-chain-platform-eks.prod.galachain.com/api/asset/dexv3-contract/GetCompositePool"
-
+const GCP_URL = "https://gateway-mainnet.galachain.com/api/asset/dexv3-contract/GetCompositePool"
 const API_BASE_URL = "https://dex-backend-prod1.defi.gala.com";
-
 
 async function performOfflineQuote(token0, token1, amount, fee, ) {
   // 2. Fetch composite pool data from chain
@@ -26,64 +23,8 @@ async function performOfflineQuote(token0, token1, amount, fee, ) {
     }
   });
 
-  // temporarily construce the composite pool data via Query API calls
-  const queryAPICompositePool = await getPoolData(token0.collection + "$" + token0.category + "$" + token0.type + "$" + token0.additionalKey, token1.collection + "$" + token1.category + "$" + token1.type + "$" + token1.additionalKey, fee);
-  
-  // Use GraphQL data (current and up-to-date)
-  const foundPool = new Pool(
-    queryAPICompositePool.pool.token0,
-    queryAPICompositePool.pool.token1,
-    queryAPICompositePool.pool.token0ClassKey,
-    queryAPICompositePool.pool.token1ClassKey,
-    queryAPICompositePool.pool.fee,
-    new BigNumber(queryAPICompositePool.pool.sqrtPrice),
-    queryAPICompositePool.pool.protocolFees
-  );
-  
-  // Set the bitmap and liquidity from the GraphQL data
-  foundPool.bitmap = queryAPICompositePool.pool.bitmap;
-  foundPool.grossPoolLiquidity = new BigNumber(queryAPICompositePool.pool.grossPoolLiquidity);
-  foundPool.liquidity = new BigNumber(queryAPICompositePool.pool.liquidity);
-  foundPool.feeGrowthGlobal0 = new BigNumber(queryAPICompositePool.pool.feeGrowthGlobal0);
-  foundPool.feeGrowthGlobal1 = new BigNumber(queryAPICompositePool.pool.feeGrowthGlobal1);
-  foundPool.protocolFeesToken0 = new BigNumber(queryAPICompositePool.pool.protocolFeesToken0);
-  foundPool.protocolFeesToken1 = new BigNumber(queryAPICompositePool.pool.protocolFeesToken1);
-  
-  // Use GraphQL data for tick data map
-  const poolTicks = {};
-  queryAPICompositePool.poolTicks.forEach(tick => {
-    // Parse the JSON string in tick.node.value before creating TickData object
-    const parsedTickValue = JSON.parse(tick.node.value);
-    poolTicks[tick.node.key2] = parsedTickValue;
-  });
-
-  const poolToken0Balance = new TokenBalance({
-    owner: queryAPICompositePool.poolBalances[0].node.owner,
-    collection: queryAPICompositePool.poolBalances[0].node.collection,
-    category: queryAPICompositePool.poolBalances[0].node.category,
-    type: queryAPICompositePool.poolBalances[0].node.type,
-    additionalKey: queryAPICompositePool.poolBalances[0].node.additionalKey
-  });
-  poolToken0Balance.quantity = new BigNumber(queryAPICompositePool.poolBalances[0].node.quantity);
-
-  const poolToken1Balance = new TokenBalance({
-    owner: queryAPICompositePool.poolBalances[1].node.owner,
-    collection: queryAPICompositePool.poolBalances[1].node.collection,
-    category: queryAPICompositePool.poolBalances[1].node.category,
-    type: queryAPICompositePool.poolBalances[1].node.type,
-    additionalKey: queryAPICompositePool.poolBalances[1].node.additionalKey
-  });
-  poolToken1Balance.quantity = new BigNumber(queryAPICompositePool.poolBalances[1].node.quantity);
-
-
-  const compositePoolData = new CompositePoolDto(
-    foundPool, 
-    poolTicks,
-    poolToken0Balance,
-    poolToken1Balance,
-    queryAPICompositePool.token0Decimals, 
-    queryAPICompositePool.token1Decimals
-  );
+  // Optionally create composite pool data from GraphQL (for comparison/debugging)
+  // const compositePoolData = await createCompositePoolFromGraphQL(token0, token1, fee);
 
   // 3. Convert response data to proper CompositePoolDto
   const compositePoolDataFromResponse = createCompositePoolDtoFromResponse(compositePoolResponse.data.Data);
@@ -97,10 +38,6 @@ async function performOfflineQuote(token0, token1, amount, fee, ) {
     true, // GALA -> GUSDC
     compositePoolDataFromResponse // Use the converted data for offline calculation
   );
-
-  console.log("Raw Response Data: ", JSON.stringify(compositePoolResponse.data.Data, null, 2));
-  console.log("Converted Composite Pool Data: ", JSON.stringify(compositePoolDataFromResponse, null, 2));
-  console.log("QL Composite Pool Data: ", JSON.stringify(compositePoolData, null, 2));
 
   // 4. Perform quote calculation locally
   const quoteResult = await quoteExactAmount(null, quoteDto);
@@ -236,6 +173,73 @@ function createCompositePoolDtoFromResponse(responseData) {
     token1Balance,
     responseData.token0Decimals,
     responseData.token1Decimals
+  );
+}
+
+/**
+ * Creates composite pool data using GraphQL Query API calls
+ * @param {TokenClassKey} token0 - First token in the pair
+ * @param {TokenClassKey} token1 - Second token in the pair
+ * @param {number} fee - Fee tier for the pool
+ * @returns {CompositePoolDto} - Composite pool data constructed from GraphQL
+ */
+async function createCompositePoolFromGraphQL(token0, token1, fee) {
+  // temporarily construct the composite pool data via Query API calls
+  const queryAPICompositePool = await getPoolData(token0.collection + "$" + token0.category + "$" + token0.type + "$" + token0.additionalKey, token1.collection + "$" + token1.category + "$" + token1.type + "$" + token1.additionalKey, fee);
+  
+  // Use GraphQL data (current and up-to-date)
+  const foundPool = new Pool(
+    queryAPICompositePool.pool.token0,
+    queryAPICompositePool.pool.token1,
+    queryAPICompositePool.pool.token0ClassKey,
+    queryAPICompositePool.pool.token1ClassKey,
+    queryAPICompositePool.pool.fee,
+    new BigNumber(queryAPICompositePool.pool.sqrtPrice),
+    queryAPICompositePool.pool.protocolFees
+  );
+  
+  // Set the bitmap and liquidity from the GraphQL data
+  foundPool.bitmap = queryAPICompositePool.pool.bitmap;
+  foundPool.grossPoolLiquidity = new BigNumber(queryAPICompositePool.pool.grossPoolLiquidity);
+  foundPool.liquidity = new BigNumber(queryAPICompositePool.pool.liquidity);
+  foundPool.feeGrowthGlobal0 = new BigNumber(queryAPICompositePool.pool.feeGrowthGlobal0);
+  foundPool.feeGrowthGlobal1 = new BigNumber(queryAPICompositePool.pool.feeGrowthGlobal1);
+  foundPool.protocolFeesToken0 = new BigNumber(queryAPICompositePool.pool.protocolFeesToken0);
+  foundPool.protocolFeesToken1 = new BigNumber(queryAPICompositePool.pool.protocolFeesToken1);
+  
+  // Use GraphQL data for tick data map
+  const poolTicks = {};
+  queryAPICompositePool.poolTicks.forEach(tick => {
+    // Parse the JSON string in tick.node.value before creating TickData object
+    const parsedTickValue = JSON.parse(tick.node.value);
+    poolTicks[tick.node.key2] = parsedTickValue;
+  });
+
+  const poolToken0Balance = new TokenBalance({
+    owner: queryAPICompositePool.poolBalances[0].node.owner,
+    collection: queryAPICompositePool.poolBalances[0].node.collection,
+    category: queryAPICompositePool.poolBalances[0].node.category,
+    type: queryAPICompositePool.poolBalances[0].node.type,
+    additionalKey: queryAPICompositePool.poolBalances[0].node.additionalKey
+  });
+  poolToken0Balance.quantity = new BigNumber(queryAPICompositePool.poolBalances[0].node.quantity);
+
+  const poolToken1Balance = new TokenBalance({
+    owner: queryAPICompositePool.poolBalances[1].node.owner,
+    collection: queryAPICompositePool.poolBalances[1].node.collection,
+    category: queryAPICompositePool.poolBalances[1].node.category,
+    type: queryAPICompositePool.poolBalances[1].node.type,
+    additionalKey: queryAPICompositePool.poolBalances[1].node.additionalKey
+  });
+  poolToken1Balance.quantity = new BigNumber(queryAPICompositePool.poolBalances[1].node.quantity);
+
+  return new CompositePoolDto(
+    foundPool, 
+    poolTicks,
+    poolToken0Balance,
+    poolToken1Balance,
+    queryAPICompositePool.token0Decimals, 
+    queryAPICompositePool.token1Decimals
   );
 }
 
